@@ -292,6 +292,59 @@
   }
   .result-summary .highlight { color: var(--accent); font-weight: 600; }
 
+  /* CSV Downloads */
+  .csv-downloads {
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--bg-panel-light);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .csv-downloads h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .csv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .csv-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #0d1120;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .csv-item-info {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+  .csv-item-info .area { color: var(--accent); font-weight: 600; }
+  .btn-csv {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-csv:hover {
+    background: var(--accent);
+    color: #0a0e1a;
+  }
+
   /* Scrollbar */
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -307,7 +360,7 @@
       <div class="drone-icon">🛩️</div>
     </div>
     <h1>Flight Line Filter</h1>
-    <p>Upload your drone flight lines and a boundary area. The app will clip the flight lines to only those inside your boundary and export a single KML.</p>
+    <p>Upload your drone flight lines and a boundary area. The app will clip the flight lines to only those inside your boundary, export a single KML, and generate a CSV report with cumulative flight statistics.</p>
   </div>
 
   <!-- Steps -->
@@ -365,6 +418,12 @@
   <div class="download-section" id="dlSection">
     <button class="btn-download" id="btnDownload">⬇️ Download Filtered KML</button>
     <div class="result-summary" id="resultSummary"></div>
+    
+    <!-- CSV Reports -->
+    <div class="csv-downloads" id="csvDownloads" style="display:none;">
+      <h3>📊 Flight Statistics Report</h3>
+      <div class="csv-list" id="csvList"></div>
+    </div>
   </div>
 
 </div>
@@ -552,6 +611,39 @@ function extractBoundaryPolygons(doc) {
 // ─────────────────────────────────────────────
 
 /**
+ * Calculate distance between two points using Haversine formula
+ * @param {[number,number]} p1 - [lon, lat]
+ * @param {[number,number]} p2 - [lon, lat]
+ * @returns {number} distance in meters
+ */
+function haversineDistance(p1, p2) {
+  const R = 6371000; // Earth radius in meters
+  const lat1 = p1[1] * Math.PI / 180;
+  const lat2 = p2[1] * Math.PI / 180;
+  const dLat = (p2[1] - p1[1]) * Math.PI / 180;
+  const dLon = (p2[0] - p1[0]) * Math.PI / 180;
+
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1) * Math.cos(lat2) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+/**
+ * Calculate total distance of a flight path
+ * @param {Array<[number,number]>} points - array of [lon, lat]
+ * @returns {number} total distance in meters
+ */
+function calculatePathDistance(points) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += haversineDistance(points[i-1], points[i]);
+  }
+  return total;
+}
+
+/**
  * Ray-casting algorithm to test if a point is inside a polygon.
  * @param {[number,number]} point - [lon, lat]
  * @param {Array<[number,number]>} polygon - array of [lon, lat] vertices
@@ -568,6 +660,165 @@ function pointInPolygon(point, polygon) {
     if (intersect) inside = !inside;
   }
   return inside;
+}
+
+/**
+ * Extract metadata from a Placemark
+ * @param {Element} placemark - Placemark DOM element
+ * @returns {Object} metadata object with name, description, timestamps, flightTime
+ */
+function extractPlacemarkMetadata(placemark) {
+  const metadata = {
+    name: '',
+    description: '',
+    timestamps: [],
+    timeSpan: null,
+    flightTime: 0 // in seconds
+  };
+
+  // Extract name
+  const nameEl = placemark.getElementsByTagName('name');
+  if (nameEl.length > 0) metadata.name = nameEl[0].textContent.trim();
+
+  // Extract description
+  const descEl = placemark.getElementsByTagName('description');
+  if (descEl.length > 0) {
+    metadata.description = descEl[0].textContent.trim();
+    
+    // Try to parse flight time from description
+    // Common patterns: "Flight Time: 00:05:23", "Duration: 5m 23s", "Time: 323s", etc.
+    const desc = metadata.description;
+    
+    // Pattern 1: HH:MM:SS or MM:SS
+    const timePattern1 = /(?:Flight Time|Duration|Time)[:\s]+(\d{1,2}):(\d{2}):(\d{2})/i;
+    const match1 = desc.match(timePattern1);
+    if (match1) {
+      const hours = parseInt(match1[1]) || 0;
+      const minutes = parseInt(match1[2]) || 0;
+      const seconds = parseInt(match1[3]) || 0;
+      metadata.flightTime = hours * 3600 + minutes * 60 + seconds;
+    } else {
+      // Pattern 2: MM:SS
+      const timePattern2 = /(?:Flight Time|Duration|Time)[:\s]+(\d{1,2}):(\d{2})/i;
+      const match2 = desc.match(timePattern2);
+      if (match2) {
+        const minutes = parseInt(match2[1]) || 0;
+        const seconds = parseInt(match2[2]) || 0;
+        metadata.flightTime = minutes * 60 + seconds;
+      } else {
+        // Pattern 3: Just seconds (e.g., "323s" or "323 seconds")
+        const timePattern3 = /(?:Flight Time|Duration|Time)[:\s]+(\d+)\s*(?:s|sec|seconds?)/i;
+        const match3 = desc.match(timePattern3);
+        if (match3) {
+          metadata.flightTime = parseInt(match3[1]) || 0;
+        } else {
+          // Pattern 4: Minutes and seconds (e.g., "5m 23s")
+          const timePattern4 = /(?:Flight Time|Duration|Time)[:\s]+(\d+)\s*m\s*(\d+)\s*s/i;
+          const match4 = desc.match(timePattern4);
+          if (match4) {
+            const minutes = parseInt(match4[1]) || 0;
+            const seconds = parseInt(match4[2]) || 0;
+            metadata.flightTime = minutes * 60 + seconds;
+          }
+        }
+      }
+    }
+  }
+  
+  // Try ExtendedData for flight time
+  if (metadata.flightTime === 0) {
+    const extendedData = placemark.getElementsByTagName('ExtendedData');
+    if (extendedData.length > 0) {
+      const dataEls = extendedData[0].getElementsByTagName('Data');
+      for (let i = 0; i < dataEls.length; i++) {
+        const dataEl = dataEls[i];
+        const name = dataEl.getAttribute('name') || '';
+        if (name.toLowerCase().includes('time') || name.toLowerCase().includes('duration')) {
+          const valueEl = dataEl.getElementsByTagName('value');
+          if (valueEl.length > 0) {
+            const valueText = valueEl[0].textContent.trim();
+            // Try to parse as number
+            const numValue = parseFloat(valueText);
+            if (!isNaN(numValue) && numValue > 0) {
+              // Flight time is in milliseconds, convert to seconds
+              metadata.flightTime = numValue / 1000;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Extract timestamps from <when> tags (for tracks with time data)
+  const whenEls = placemark.getElementsByTagName('when');
+  for (let i = 0; i < whenEls.length; i++) {
+    const timeStr = whenEls[i].textContent.trim();
+    if (timeStr) {
+      const date = new Date(timeStr);
+      if (!isNaN(date.getTime())) metadata.timestamps.push(date);
+    }
+  }
+
+  // Extract TimeSpan (begin/end)
+  const timeSpanEl = placemark.getElementsByTagName('TimeSpan');
+  if (timeSpanEl.length > 0) {
+    const beginEl = timeSpanEl[0].getElementsByTagName('begin');
+    const endEl = timeSpanEl[0].getElementsByTagName('end');
+    if (beginEl.length > 0 && endEl.length > 0) {
+      const begin = new Date(beginEl[0].textContent.trim());
+      const end = new Date(endEl[0].textContent.trim());
+      if (!isNaN(begin.getTime()) && !isNaN(end.getTime())) {
+        metadata.timeSpan = { begin, end };
+      }
+    }
+  }
+
+  return metadata;
+}
+
+/**
+ * Extract date from filename pattern like "FTF-T25-01_20251105080336_R0159307001.kml"
+ * Looking for 8-digit date pattern YYYYMMDD
+ * @param {string} filename
+ * @returns {string|null} date string in YYYY-MM-DD format or null
+ */
+function extractDateFromFilename(filename) {
+  // Look for 8 consecutive digits that look like a date (YYYYMMDD)
+  const datePattern = /(\d{4})(\d{2})(\d{2})/;
+  const match = filename.match(datePattern);
+  if (match) {
+    const year = parseInt(match[1]);
+    const month = parseInt(match[2]);
+    const day = parseInt(match[3]);
+    // Basic validation
+    if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${match[2]}-${match[3]}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract base name from boundary KML filename
+ * Example: "FAST_08_P14_(2025)_Buccan_Job412410_R1_S25_20251027_110003.kml"
+ * Returns: "FAST_08_P14_(2025)_Buccan"
+ * @param {string} filename
+ * @returns {string} cleaned filename
+ */
+function extractBoundaryBaseName(filename) {
+  // Remove .kml extension
+  let name = filename.replace(/\.kml$/i, '');
+  
+  // Remove patterns like: _Job123456, _R1, _S25, _20251027_110003, etc.
+  // Stop at the first occurrence of _Job, _R, _S, or 8-digit date
+  name = name.replace(/_Job\d+.*$/i, '');
+  name = name.replace(/_R\d+.*$/i, '');
+  name = name.replace(/_S\d+.*$/i, '');
+  name = name.replace(/_\d{8}_.*$/, '');
+  name = name.replace(/_\d{8}$/, '');
+  
+  return name;
 }
 
 /**
@@ -614,11 +865,19 @@ document.getElementById('btnRun').addEventListener('click', async function() {
     const totalVertices = boundaries.reduce((sum, b) => sum + b.length, 0);
     log(`Boundary loaded: ${boundaries.length} polygon${boundaries.length > 1 ? 's' : ''} with ${totalVertices} total vertices`, 'ok');
 
-    // 2. Process each flight line KML
+    // 2. Process each flight line KML and track stats per boundary
     let kept = 0;
     let skipped = 0;
     let errors = 0;
     const keptPlacemarks = [];
+    
+    // Track stats per boundary: array of { flights: [], totalDistance: 0, dates: Set }
+    const boundaryStats = boundaries.map(() => ({
+      flights: [],
+      totalDistance: 0,
+      totalFlightTime: 0,
+      dates: new Set()
+    }));
 
     log(`Processing ${flightFiles.length} flight line files…`, 'info');
 
@@ -646,7 +905,70 @@ document.getElementById('btnRun').addEventListener('click', async function() {
 
           if (points.length === 0) continue;
 
-          if (lineStringIntersectsBoundaries(points, boundaries)) {
+          // Check which boundary(ies) this flight intersects
+          const intersectedBoundaries = [];
+          for (let b = 0; b < boundaries.length; b++) {
+            for (const pt of points) {
+              if (pointInPolygon(pt, boundaries[b])) {
+                intersectedBoundaries.push(b);
+                break;
+              }
+            }
+          }
+
+          if (intersectedBoundaries.length > 0) {
+            // Extract metadata
+            const metadata = extractPlacemarkMetadata(pm);
+            const distance = calculatePathDistance(points);
+            
+            // Get flight time from metadata (parsed from description/ExtendedData)
+            let flightTime = metadata.flightTime; // Already in seconds
+            
+            // If no flight time in metadata, try to calculate from timestamps as fallback
+            if (flightTime === 0) {
+              if (metadata.timestamps.length >= 2) {
+                const firstTime = metadata.timestamps[0].getTime();
+                const lastTime = metadata.timestamps[metadata.timestamps.length - 1].getTime();
+                flightTime = (lastTime - firstTime) / 1000; // seconds
+              } else if (metadata.timeSpan) {
+                flightTime = (metadata.timeSpan.end.getTime() - metadata.timeSpan.begin.getTime()) / 1000;
+              }
+            }
+            
+            // Debug: log first few flight times
+            if (kept < 3) {
+              log(`Flight "${metadata.name || file.name}" - Time: ${flightTime}s (${(flightTime/60).toFixed(1)}min)`, 'info');
+            }
+            
+            // Extract date from filename
+            const fileDate = extractDateFromFilename(file.name);
+
+            // Add to each intersected boundary's stats
+            for (const boundaryIdx of intersectedBoundaries) {
+              boundaryStats[boundaryIdx].flights.push({
+                name: metadata.name || file.name,
+                distance: distance,
+                flightTime: flightTime,
+                timestamps: metadata.timestamps,
+                timeSpan: metadata.timeSpan
+              });
+              boundaryStats[boundaryIdx].totalDistance += distance;
+              boundaryStats[boundaryIdx].totalFlightTime += flightTime;
+              
+              // Collect dates - prioritize filename date, then timestamps
+              if (fileDate) {
+                boundaryStats[boundaryIdx].dates.add(fileDate);
+              } else if (metadata.timestamps.length > 0) {
+                metadata.timestamps.forEach(ts => {
+                  const dateStr = ts.toISOString().split('T')[0];
+                  boundaryStats[boundaryIdx].dates.add(dateStr);
+                });
+              } else if (metadata.timeSpan) {
+                const dateStr = metadata.timeSpan.begin.toISOString().split('T')[0];
+                boundaryStats[boundaryIdx].dates.add(dateStr);
+              }
+            }
+
             // Serialize the entire Placemark back to string
             const serializer = new XMLSerializer();
             keptPlacemarks.push(serializer.serializeToString(pm));
@@ -710,10 +1032,70 @@ ${keptPlacemarks.map(p => '    ' + p).join('\n')}
     outputBlob = new Blob([outputKML], { type: 'application/vnd.google-earth.kml+xml' });
     log(`Output KML generated (${(outputBlob.size / 1024).toFixed(1)} KB)`, 'ok');
 
+    // 4. Generate single CSV report for all boundaries combined
+    log('Generating CSV report…', 'info');
+    
+    // Aggregate all stats across all boundaries
+    const allFlights = [];
+    const allDates = new Set();
+    let totalDistance = 0;
+    let totalFlightTime = 0;
+    
+    for (let b = 0; b < boundaries.length; b++) {
+      const stats = boundaryStats[b];
+      allFlights.push(...stats.flights);
+      stats.dates.forEach(d => allDates.add(d));
+      totalDistance += stats.totalDistance;
+      totalFlightTime += stats.totalFlightTime;
+    }
+    
+    if (allFlights.length > 0) {
+      const csv = [];
+      csv.push('Metric,Value');
+      
+      const datesList = Array.from(allDates).sort().join(', ');
+      csv.push(`"Flight Dates","${datesList || 'No date info'}"`);
+      csv.push(`"Number of Separate Days Flown",${allDates.size}`);
+      csv.push(`"Total Distance (km)","${(totalDistance / 1000).toFixed(2)}"`);
+      csv.push(`"Total Flight Time (hours)","${(totalFlightTime / 3600).toFixed(2)}"`);
+      csv.push(`"Total Flight Count",${allFlights.length}`);
+      
+      const csvText = csv.join('\n');
+      const csvBlob = new Blob([csvText], { type: 'text/csv' });
+      
+      // Generate CSV filename based on boundary KML name
+      const boundaryBaseName = extractBoundaryBaseName(boundaryFile.name);
+      const csvFilename = `${boundaryBaseName}_flight_log.csv`;
+      
+      // Store CSV blob globally
+      window.csvReport = {
+        blob: csvBlob,
+        filename: csvFilename,
+        flightCount: allFlights.length
+      };
+      
+      log(`CSV report generated: ${allFlights.length} flights total`, 'ok');
+    } else {
+      window.csvReport = null;
+    }
+
     // Show download
     document.getElementById('resultSummary').innerHTML =
       `<span class="highlight">${kept}</span> flight lines kept out of ${kept + skipped} total · ${errors} errors`;
     document.getElementById('dlSection').classList.add('visible');
+    
+    // Populate CSV download
+    if (window.csvReport) {
+      const csvList = document.getElementById('csvList');
+      csvList.innerHTML = 
+        `<div class="csv-item">
+          <div class="csv-item-info">
+            <span class="area">Complete Report</span> — ${window.csvReport.flightCount} flight${window.csvReport.flightCount !== 1 ? 's' : ''} across all boundary areas
+          </div>
+          <button class="btn-csv" onclick="downloadCSV()">Download CSV</button>
+        </div>`;
+      document.getElementById('csvDownloads').style.display = 'block';
+    }
 
   } catch (err) {
     log(`FATAL: ${err.message}`, 'err');
@@ -738,6 +1120,21 @@ document.getElementById('btnDownload').addEventListener('click', function() {
   URL.revokeObjectURL(url);
   log('File downloaded: filtered_flight_lines.kml', 'ok');
 });
+
+// CSV Download function
+function downloadCSV() {
+  if (!window.csvReport) return;
+  const csv = window.csvReport;
+  const url = URL.createObjectURL(csv.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = csv.filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  log(`CSV downloaded: ${csv.filename}`, 'ok');
+}
 
 // ─────────────────────────────────────────────
 //  UTILITY
