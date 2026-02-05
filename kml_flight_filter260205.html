@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>KML Flight Line Filter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg-deep: #0a0e1a;
+    --bg-panel: #111827;
+    --bg-panel-light: #1a2438;
+    --accent: #00d4aa;
+    --accent-dim: rgba(0,212,170,0.12);
+    --accent-glow: rgba(0,212,170,0.35);
+    --text-primary: #e2e8f0;
+    --text-secondary: #64748b;
+    --text-muted: #334155;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --border: #1e293b;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Rajdhani', sans-serif;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 60px 60px;
+    opacity: 0.3;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrapper {
+    position: relative; z-index: 1;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .header .icon-row {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    margin-bottom: 12px;
+  }
+  .header .drone-icon {
+    width: 44px; height: 44px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-glow);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .header p {
+    color: var(--text-secondary);
+    font-size: 1.05rem;
+    font-weight: 400;
+    max-width: 520px;
+    margin: 0 auto;
+    line-height: 1.5;
+  }
+
+  /* Step Cards */
+  .steps { display: flex; flex-direction: column; gap: 20px; }
+
+  .step-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .step-card.active { border-color: var(--accent-glow); }
+  .step-card.done { border-color: var(--accent); }
+
+  .step-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 18px 22px 14px;
+  }
+  .step-num {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--bg-panel-light);
+    border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.85rem; font-weight: 700;
+    color: var(--text-secondary);
+    transition: all 0.3s;
+    flex-shrink: 0;
+  }
+  .step-card.done .step-num {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a0e1a;
+  }
+  .step-header h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .step-header h2 span {
+    color: var(--text-secondary);
+    font-weight: 400;
+    font-size: 0.85rem;
+    margin-left: 8px;
+  }
+
+  .step-body { padding: 0 22px 20px; }
+
+  /* Drop Zone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s;
+    background: var(--bg-panel-light);
+    position: relative;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent-glow);
+    background: var(--accent-dim);
+  }
+  .dropzone input[type=file] {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; cursor: pointer;
+  }
+  .dropzone .dz-icon { font-size: 28px; margin-bottom: 6px; }
+  .dropzone .dz-label {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .dropzone .dz-label strong { color: var(--accent); }
+  .dropzone .dz-sub {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* File list */
+  .file-list {
+    margin-top: 12px;
+    max-height: 140px;
+    overflow-y: auto;
+    border-radius: 8px;
+    background: #0d1120;
+  }
+  .file-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .file-item:last-child { border-bottom: none; }
+  .file-item .fi-icon { color: var(--accent); }
+  .file-item .fi-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-count {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-family: 'Share Tech Mono', monospace;
+  }
+  .file-count span { color: var(--accent); font-weight: 600; }
+
+  /* Run button */
+  .run-section { margin-top: 32px; text-align: center; }
+  .btn-run {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--accent);
+    color: #0a0e1a;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 38px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+  .btn-run:hover { transform: translateY(-1px); box-shadow: 0 0 30px var(--accent-glow); }
+  .btn-run:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* Log / Status */
+  .log-panel {
+    margin-top: 24px;
+    background: #0d1120;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    display: none;
+  }
+  .log-panel.visible { display: block; }
+  .log-header {
+    padding: 10px 16px;
+    background: var(--bg-panel-light);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .log-header .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .log-body {
+    padding: 14px 16px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.8;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .log-body .log-line { margin-bottom: 2px; }
+  .log-body .log-line .ts { color: var(--text-muted); margin-right: 8px; }
+  .log-body .log-line .ok { color: var(--accent); }
+  .log-body .log-line .warn { color: var(--warning); }
+  .log-body .log-line .err { color: var(--danger); }
+  .log-body .log-line .info { color: var(--text-secondary); }
+
+  /* Download button */
+  .download-section {
+    margin-top: 24px;
+    text-align: center;
+    display: none;
+  }
+  .download-section.visible { display: block; }
+  .btn-download {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: transparent;
+    color: var(--accent);
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    padding: 12px 32px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-download:hover {
+    background: var(--accent);
+    color: #0a0e1a;
+  }
+  .result-summary {
+    margin-top: 12px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-family: 'Share Tech Mono', monospace;
+  }
+  .result-summary .highlight { color: var(--accent); font-weight: 600; }
+
+  /* CSV Downloads */
+  .csv-downloads {
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--bg-panel-light);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .csv-downloads h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .csv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .csv-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #0d1120;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .csv-item-info {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+  .csv-item-info .area { color: var(--accent); font-weight: 600; }
+  .btn-csv {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-csv:hover {
+    background: var(--accent);
+    color: #0a0e1a;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="icon-row">
+      <div class="drone-icon">🛩️</div>
+    </div>
+    <h1>Flight Line Filter</h1>
+    <p>Upload your drone flight lines and a boundary area. The app will clip the flight lines to only those inside your boundary, export a single KML, and generate a CSV report with cumulative flight statistics.</p>
+  </div>
+
+  <!-- Steps -->
+  <div class="steps">
+
+    <!-- Step 1: Flight Lines -->
+    <div class="step-card" id="card1">
+      <div class="step-header">
+        <div class="step-num" id="num1">1</div>
+        <h2>Flight Lines <span>— Upload KML files</span></h2>
+      </div>
+      <div class="step-body">
+        <div class="dropzone" id="dz1">
+          <input type="file" id="flightInput" multiple accept=".kml" />
+          <div class="dz-icon">📂</div>
+          <div class="dz-label"><strong>Click or drag &amp; drop</strong> your flight line KMLs here</div>
+          <div class="dz-sub">You can select multiple files at once (supports ~200+)</div>
+        </div>
+        <div id="flightList" class="file-list" style="display:none;"></div>
+        <div id="flightCount" class="file-count" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Step 2: Boundary -->
+    <div class="step-card" id="card2">
+      <div class="step-header">
+        <div class="step-num" id="num2">2</div>
+        <h2>Boundary Area <span>— Single KML file</span></h2>
+      </div>
+      <div class="step-body">
+        <div class="dropzone" id="dz2">
+          <input type="file" id="boundaryInput" accept=".kml" />
+          <div class="dz-icon">🗺️</div>
+          <div class="dz-label"><strong>Click or drag &amp; drop</strong> your boundary KML here</div>
+          <div class="dz-sub">Single polygon or multi-polygon boundary</div>
+        </div>
+        <div id="boundaryList" class="file-list" style="display:none;"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Run -->
+  <div class="run-section">
+    <button class="btn-run" id="btnRun" disabled>⚡ Filter &amp; Export</button>
+  </div>
+
+  <!-- Log -->
+  <div class="log-panel" id="logPanel">
+    <div class="log-header"><div class="dot"></div> Processing Log</div>
+    <div class="log-body" id="logBody"></div>
+  </div>
+
+  <!-- Download -->
+  <div class="download-section" id="dlSection">
+    <button class="btn-download" id="btnDownload">⬇️ Download Filtered KML</button>
+    <div class="result-summary" id="resultSummary"></div>
+    
+    <!-- CSV Reports -->
+    <div class="csv-downloads" id="csvDownloads" style="display:none;">
+      <h3>📊 Flight Statistics Report</h3>
+      <div class="csv-list" id="csvList"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let flightFiles = [];
+let boundaryFile = null;
+let outputBlob = null;
+
+// ─────────────────────────────────────────────
+//  UI HELPERS
+// ─────────────────────────────────────────────
+function log(msg, type = 'info') {
+  const body = document.getElementById('logBody');
+  const now = new Date();
+  const ts = now.getHours().toString().padStart(2,'0') + ':' +
+             now.getMinutes().toString().padStart(2,'0') + ':' +
+             now.getSeconds().toString().padStart(2,'0');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="ts">[${ts}]</span><span class="${type}">${msg}</span>`;
+  body.appendChild(line);
+  body.scrollTop = body.scrollHeight;
+}
+
+function showLog() {
+  document.getElementById('logPanel').classList.add('visible');
+}
+
+function markDone(cardId, numId) {
+  document.getElementById(cardId).classList.add('done');
+  document.getElementById(numId).innerHTML = '✓';
+}
+
+function checkRunBtn() {
+  document.getElementById('btnRun').disabled = !(flightFiles.length > 0 && boundaryFile);
+}
+
+// ─────────────────────────────────────────────
+//  FILE UPLOAD HANDLERS
+// ─────────────────────────────────────────────
+function renderFlightList() {
+  const container = document.getElementById('flightList');
+  const countEl = document.getElementById('flightCount');
+  if (flightFiles.length === 0) { container.style.display='none'; countEl.style.display='none'; return; }
+  container.style.display = 'block';
+  countEl.style.display = 'block';
+  // show max 8
+  const show = flightFiles.slice(0, 8);
+  container.innerHTML = show.map(f =>
+    `<div class="file-item"><span class="fi-icon">◇</span><span class="fi-name">${f.name}</span></div>`
+  ).join('');
+  if (flightFiles.length > 8) {
+    container.innerHTML += `<div class="file-item" style="color:var(--text-muted); font-style:italic;">… and ${flightFiles.length - 8} more</div>`;
+  }
+  countEl.innerHTML = `<span>${flightFiles.length}</span> flight line file${flightFiles.length !== 1 ? 's' : ''} loaded`;
+  document.getElementById('card1').classList.add('done');
+  document.getElementById('num1').innerHTML = '✓';
+  checkRunBtn();
+}
+
+document.getElementById('flightInput').addEventListener('change', function(e) {
+  flightFiles = Array.from(e.target.files);
+  renderFlightList();
+});
+
+// Drag & drop for flight lines
+const dz1 = document.getElementById('dz1');
+dz1.addEventListener('dragover', e => { e.preventDefault(); dz1.classList.add('dragover'); });
+dz1.addEventListener('dragleave', () => dz1.classList.remove('dragover'));
+dz1.addEventListener('drop', e => {
+  e.preventDefault(); dz1.classList.remove('dragover');
+  flightFiles = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.kml'));
+  renderFlightList();
+});
+
+// Boundary
+document.getElementById('boundaryInput').addEventListener('change', function(e) {
+  boundaryFile = e.target.files[0] || null;
+  const container = document.getElementById('boundaryList');
+  if (boundaryFile) {
+    container.style.display = 'block';
+    container.innerHTML = `<div class="file-item"><span class="fi-icon">◇</span><span class="fi-name">${boundaryFile.name}</span></div>`;
+    markDone('card2', 'num2');
+  } else {
+    container.style.display = 'none';
+  }
+  checkRunBtn();
+});
+
+const dz2 = document.getElementById('dz2');
+dz2.addEventListener('dragover', e => { e.preventDefault(); dz2.classList.add('dragover'); });
+dz2.addEventListener('dragleave', () => dz2.classList.remove('dragover'));
+dz2.addEventListener('drop', e => {
+  e.preventDefault(); dz2.classList.remove('dragover');
+  const f = Array.from(e.dataTransfer.files).find(f => f.name.toLowerCase().endsWith('.kml'));
+  if (f) {
+    boundaryFile = f;
+    const container = document.getElementById('boundaryList');
+    container.style.display = 'block';
+    container.innerHTML = `<div class="file-item"><span class="fi-icon">◇</span><span class="fi-name">${boundaryFile.name}</span></div>`;
+    markDone('card2', 'num2');
+    checkRunBtn();
+  }
+});
+
+// ─────────────────────────────────────────────
+//  KML PARSING
+// ─────────────────────────────────────────────
+
+/** Read file as text */
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+
+/** Parse KML string → DOMParser document */
+function parseKML(text) {
+  const parser = new DOMParser();
+  return parser.parseFromString(text, 'application/xml');
+}
+
+/**
+ * Extract all coordinate arrays from a KML doc.
+ * Returns array of arrays: [ [[lon,lat], [lon,lat], ...], ... ]
+ * Handles <coordinates> inside LineString, Polygon, Point, etc.
+ */
+function extractCoordinateRings(doc) {
+  const rings = [];
+  const coordEls = doc.getElementsByTagName('coordinates');
+  for (let i = 0; i < coordEls.length; i++) {
+    const text = coordEls[i].textContent.trim();
+    const points = text.split(/\s+/).map(triplet => {
+      const parts = triplet.split(',').map(Number);
+      return [parts[0], parts[1]]; // lon, lat
+    }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+    if (points.length > 0) rings.push(points);
+  }
+  return rings;
+}
+
+/**
+ * Extract ALL polygon rings from boundary KML.
+ * Returns array of polygons: [ [[lon,lat],...], [[lon,lat],...], ... ]
+ * Handles multi-polygon boundaries with multiple geographic areas.
+ */
+function extractBoundaryPolygons(doc) {
+  const allPolygons = [];
+  
+  // Try to find all Polygon > outerBoundaryIs > LinearRing > coordinates
+  const polygons = doc.getElementsByTagName('Polygon');
+  for (let i = 0; i < polygons.length; i++) {
+    const outer = polygons[i].getElementsByTagName('outerBoundaryIs');
+    if (outer.length > 0) {
+      const coords = outer[0].getElementsByTagName('coordinates');
+      if (coords.length > 0) {
+        const text = coords[0].textContent.trim();
+        const points = text.split(/\s+/).map(triplet => {
+          const parts = triplet.split(',').map(Number);
+          return [parts[0], parts[1]];
+        }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+        if (points.length >= 3) allPolygons.push(points);
+      }
+    }
+  }
+  
+  // Fallback: extract all coordinate rings
+  if (allPolygons.length === 0) {
+    const allCoords = extractCoordinateRings(doc);
+    allPolygons.push(...allCoords.filter(ring => ring.length >= 3));
+  }
+  
+  return allPolygons;
+}
+
+// ─────────────────────────────────────────────
+//  GEOMETRY: Point-in-Polygon (Ray Casting)
+// ─────────────────────────────────────────────
+
+/**
+ * Calculate distance between two points using Haversine formula
+ * @param {[number,number]} p1 - [lon, lat]
+ * @param {[number,number]} p2 - [lon, lat]
+ * @returns {number} distance in meters
+ */
+function haversineDistance(p1, p2) {
+  const R = 6371000; // Earth radius in meters
+  const lat1 = p1[1] * Math.PI / 180;
+  const lat2 = p2[1] * Math.PI / 180;
+  const dLat = (p2[1] - p1[1]) * Math.PI / 180;
+  const dLon = (p2[0] - p1[0]) * Math.PI / 180;
+
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1) * Math.cos(lat2) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+/**
+ * Calculate total distance of a flight path
+ * @param {Array<[number,number]>} points - array of [lon, lat]
+ * @returns {number} total distance in meters
+ */
+function calculatePathDistance(points) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += haversineDistance(points[i-1], points[i]);
+  }
+  return total;
+}
+
+/**
+ * Ray-casting algorithm to test if a point is inside a polygon.
+ * @param {[number,number]} point - [lon, lat]
+ * @param {Array<[number,number]>} polygon - array of [lon, lat] vertices
+ * @returns {boolean}
+ */
+function pointInPolygon(point, polygon) {
+  const x = point[0], y = point[1];
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    const intersect = ((yi > y) !== (yj > y)) &&
+                      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Extract metadata from a Placemark
+ * @param {Element} placemark - Placemark DOM element
+ * @returns {Object} metadata object with name, description, timestamps, flightTime
+ */
+function extractPlacemarkMetadata(placemark) {
+  const metadata = {
+    name: '',
+    description: '',
+    timestamps: [],
+    timeSpan: null,
+    flightTime: 0 // in seconds
+  };
+
+  // Extract name
+  const nameEl = placemark.getElementsByTagName('name');
+  if (nameEl.length > 0) metadata.name = nameEl[0].textContent.trim();
+
+  // Extract description
+  const descEl = placemark.getElementsByTagName('description');
+  if (descEl.length > 0) {
+    metadata.description = descEl[0].textContent.trim();
+    
+    // Try to parse flight time from description
+    // Common patterns: "Flight Time: 00:05:23", "Duration: 5m 23s", "Time: 323s", etc.
+    const desc = metadata.description;
+    
+    // Pattern 1: HH:MM:SS or MM:SS
+    const timePattern1 = /(?:Flight Time|Duration|Time)[:\s]+(\d{1,2}):(\d{2}):(\d{2})/i;
+    const match1 = desc.match(timePattern1);
+    if (match1) {
+      const hours = parseInt(match1[1]) || 0;
+      const minutes = parseInt(match1[2]) || 0;
+      const seconds = parseInt(match1[3]) || 0;
+      metadata.flightTime = hours * 3600 + minutes * 60 + seconds;
+    } else {
+      // Pattern 2: MM:SS
+      const timePattern2 = /(?:Flight Time|Duration|Time)[:\s]+(\d{1,2}):(\d{2})/i;
+      const match2 = desc.match(timePattern2);
+      if (match2) {
+        const minutes = parseInt(match2[1]) || 0;
+        const seconds = parseInt(match2[2]) || 0;
+        metadata.flightTime = minutes * 60 + seconds;
+      } else {
+        // Pattern 3: Just seconds (e.g., "323s" or "323 seconds")
+        const timePattern3 = /(?:Flight Time|Duration|Time)[:\s]+(\d+)\s*(?:s|sec|seconds?)/i;
+        const match3 = desc.match(timePattern3);
+        if (match3) {
+          metadata.flightTime = parseInt(match3[1]) || 0;
+        } else {
+          // Pattern 4: Minutes and seconds (e.g., "5m 23s")
+          const timePattern4 = /(?:Flight Time|Duration|Time)[:\s]+(\d+)\s*m\s*(\d+)\s*s/i;
+          const match4 = desc.match(timePattern4);
+          if (match4) {
+            const minutes = parseInt(match4[1]) || 0;
+            const seconds = parseInt(match4[2]) || 0;
+            metadata.flightTime = minutes * 60 + seconds;
+          }
+        }
+      }
+    }
+  }
+  
+  // Try ExtendedData for flight time
+  if (metadata.flightTime === 0) {
+    const extendedData = placemark.getElementsByTagName('ExtendedData');
+    if (extendedData.length > 0) {
+      const dataEls = extendedData[0].getElementsByTagName('Data');
+      for (let i = 0; i < dataEls.length; i++) {
+        const dataEl = dataEls[i];
+        const name = dataEl.getAttribute('name') || '';
+        if (name.toLowerCase().includes('time') || name.toLowerCase().includes('duration')) {
+          const valueEl = dataEl.getElementsByTagName('value');
+          if (valueEl.length > 0) {
+            const valueText = valueEl[0].textContent.trim();
+            // Try to parse as number
+            const numValue = parseFloat(valueText);
+            if (!isNaN(numValue) && numValue > 0) {
+              // Flight time is in milliseconds, convert to seconds
+              metadata.flightTime = numValue / 1000;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Extract timestamps from <when> tags (for tracks with time data)
+  const whenEls = placemark.getElementsByTagName('when');
+  for (let i = 0; i < whenEls.length; i++) {
+    const timeStr = whenEls[i].textContent.trim();
+    if (timeStr) {
+      const date = new Date(timeStr);
+      if (!isNaN(date.getTime())) metadata.timestamps.push(date);
+    }
+  }
+
+  // Extract TimeSpan (begin/end)
+  const timeSpanEl = placemark.getElementsByTagName('TimeSpan');
+  if (timeSpanEl.length > 0) {
+    const beginEl = timeSpanEl[0].getElementsByTagName('begin');
+    const endEl = timeSpanEl[0].getElementsByTagName('end');
+    if (beginEl.length > 0 && endEl.length > 0) {
+      const begin = new Date(beginEl[0].textContent.trim());
+      const end = new Date(endEl[0].textContent.trim());
+      if (!isNaN(begin.getTime()) && !isNaN(end.getTime())) {
+        metadata.timeSpan = { begin, end };
+      }
+    }
+  }
+
+  return metadata;
+}
+
+/**
+ * Extract date from filename pattern like "FTF-T25-01_20251105080336_R0159307001.kml"
+ * Looking for 8-digit date pattern YYYYMMDD
+ * @param {string} filename
+ * @returns {string|null} date string in YYYY-MM-DD format or null
+ */
+function extractDateFromFilename(filename) {
+  // Look for 8 consecutive digits that look like a date (YYYYMMDD)
+  const datePattern = /(\d{4})(\d{2})(\d{2})/;
+  const match = filename.match(datePattern);
+  if (match) {
+    const year = parseInt(match[1]);
+    const month = parseInt(match[2]);
+    const day = parseInt(match[3]);
+    // Basic validation
+    if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${match[2]}-${match[3]}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract base name from boundary KML filename
+ * Example: "FAST_08_P14_(2025)_Buccan_Job412410_R1_S25_20251027_110003.kml"
+ * Returns: "FAST_08_P14_(2025)_Buccan"
+ * @param {string} filename
+ * @returns {string} cleaned filename
+ */
+function extractBoundaryBaseName(filename) {
+  // Remove .kml extension
+  let name = filename.replace(/\.kml$/i, '');
+  
+  // Remove patterns like: _Job123456, _R1, _S25, _20251027_110003, etc.
+  // Stop at the first occurrence of _Job, _R, _S, or 8-digit date
+  name = name.replace(/_Job\d+.*$/i, '');
+  name = name.replace(/_R\d+.*$/i, '');
+  name = name.replace(/_S\d+.*$/i, '');
+  name = name.replace(/_\d{8}_.*$/, '');
+  name = name.replace(/_\d{8}$/, '');
+  
+  return name;
+}
+
+/**
+ * Check if ANY point in a LineString is inside ANY of the boundary polygons.
+ * This is a practical heuristic: if the flight line has at least one
+ * waypoint inside any boundary area, we keep it.
+ * For more precision you could also check line-segment intersections,
+ * but for drone flight lines this works great.
+ */
+function lineStringIntersectsBoundaries(linePoints, boundaries) {
+  for (const pt of linePoints) {
+    for (const boundary of boundaries) {
+      if (pointInPolygon(pt, boundary)) return true;
+    }
+  }
+  return false;
+}
+
+// ─────────────────────────────────────────────
+//  MAIN PROCESSING
+// ─────────────────────────────────────────────
+
+document.getElementById('btnRun').addEventListener('click', async function() {
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = '⏳ Processing…';
+  document.getElementById('dlSection').classList.remove('visible');
+  document.getElementById('logBody').innerHTML = '';
+  showLog();
+  outputBlob = null;
+
+  try {
+    // 1. Parse boundary
+    log('Reading boundary file…', 'info');
+    const boundaryText = await readFile(boundaryFile);
+    const boundaryDoc = parseKML(boundaryText);
+    const boundaries = extractBoundaryPolygons(boundaryDoc);
+
+    if (!boundaries || boundaries.length === 0) {
+      log('ERROR: Could not find any valid polygons in the boundary KML.', 'err');
+      log('Make sure your boundary KML contains Polygon elements.', 'warn');
+      btn.disabled = false; btn.innerHTML = '⚡ Filter &amp; Export'; return;
+    }
+    const totalVertices = boundaries.reduce((sum, b) => sum + b.length, 0);
+    log(`Boundary loaded: ${boundaries.length} polygon${boundaries.length > 1 ? 's' : ''} with ${totalVertices} total vertices`, 'ok');
+
+    // 2. Process each flight line KML and track stats per boundary
+    let kept = 0;
+    let skipped = 0;
+    let errors = 0;
+    const keptPlacemarks = [];
+    
+    // Track stats per boundary: array of { flights: [], totalDistance: 0, dates: Set }
+    const boundaryStats = boundaries.map(() => ({
+      flights: [],
+      totalDistance: 0,
+      totalFlightTime: 0,
+      dates: new Set()
+    }));
+
+    log(`Processing ${flightFiles.length} flight line files…`, 'info');
+
+    for (let i = 0; i < flightFiles.length; i++) {
+      const file = flightFiles[i];
+      try {
+        const text = await readFile(file);
+        const doc = parseKML(text);
+
+        // Get all Placemark elements
+        const placemarks = doc.getElementsByTagName('Placemark');
+        let fileKept = 0;
+
+        for (let p = 0; p < placemarks.length; p++) {
+          const pm = placemarks[p];
+          // Extract coordinates from this placemark
+          const coordEls = pm.getElementsByTagName('coordinates');
+          if (coordEls.length === 0) continue;
+
+          const text = coordEls[0].textContent.trim();
+          const points = text.split(/\s+/).map(triplet => {
+            const parts = triplet.split(',').map(Number);
+            return [parts[0], parts[1]];
+          }).filter(pt => !isNaN(pt[0]) && !isNaN(pt[1]));
+
+          if (points.length === 0) continue;
+
+          // Check which boundary(ies) this flight intersects
+          const intersectedBoundaries = [];
+          for (let b = 0; b < boundaries.length; b++) {
+            for (const pt of points) {
+              if (pointInPolygon(pt, boundaries[b])) {
+                intersectedBoundaries.push(b);
+                break;
+              }
+            }
+          }
+
+          if (intersectedBoundaries.length > 0) {
+            // Extract metadata
+            const metadata = extractPlacemarkMetadata(pm);
+            const distance = calculatePathDistance(points);
+            
+            // Get flight time from metadata (parsed from description/ExtendedData)
+            let flightTime = metadata.flightTime; // Already in seconds
+            
+            // If no flight time in metadata, try to calculate from timestamps as fallback
+            if (flightTime === 0) {
+              if (metadata.timestamps.length >= 2) {
+                const firstTime = metadata.timestamps[0].getTime();
+                const lastTime = metadata.timestamps[metadata.timestamps.length - 1].getTime();
+                flightTime = (lastTime - firstTime) / 1000; // seconds
+              } else if (metadata.timeSpan) {
+                flightTime = (metadata.timeSpan.end.getTime() - metadata.timeSpan.begin.getTime()) / 1000;
+              }
+            }
+            
+            // Debug: log first few flight times
+            if (kept < 3) {
+              log(`Flight "${metadata.name || file.name}" - Time: ${flightTime}s (${(flightTime/60).toFixed(1)}min)`, 'info');
+            }
+            
+            // Extract date from filename
+            const fileDate = extractDateFromFilename(file.name);
+
+            // Add to each intersected boundary's stats
+            for (const boundaryIdx of intersectedBoundaries) {
+              boundaryStats[boundaryIdx].flights.push({
+                name: metadata.name || file.name,
+                distance: distance,
+                flightTime: flightTime,
+                timestamps: metadata.timestamps,
+                timeSpan: metadata.timeSpan
+              });
+              boundaryStats[boundaryIdx].totalDistance += distance;
+              boundaryStats[boundaryIdx].totalFlightTime += flightTime;
+              
+              // Collect dates - prioritize filename date, then timestamps
+              if (fileDate) {
+                boundaryStats[boundaryIdx].dates.add(fileDate);
+              } else if (metadata.timestamps.length > 0) {
+                metadata.timestamps.forEach(ts => {
+                  const dateStr = ts.toISOString().split('T')[0];
+                  boundaryStats[boundaryIdx].dates.add(dateStr);
+                });
+              } else if (metadata.timeSpan) {
+                const dateStr = metadata.timeSpan.begin.toISOString().split('T')[0];
+                boundaryStats[boundaryIdx].dates.add(dateStr);
+              }
+            }
+
+            // Serialize the entire Placemark back to string
+            const serializer = new XMLSerializer();
+            keptPlacemarks.push(serializer.serializeToString(pm));
+            fileKept++;
+            kept++;
+          } else {
+            skipped++;
+          }
+        }
+
+        // Log every 20 files for readability
+        if ((i + 1) % 20 === 0 || i === flightFiles.length - 1) {
+          log(`Processed ${i + 1}/${flightFiles.length} files… (kept so far: ${kept})`, 'info');
+        }
+
+        if (placemarks.length === 0 && fileKept === 0) {
+          // File had no placemarks — might be just coordinates at top level
+          const rings = extractCoordinateRings(doc);
+          let anyIn = false;
+          for (const ring of rings) {
+            if (lineStringIntersectsBoundaries(ring, boundaries)) { anyIn = true; break; }
+          }
+          if (anyIn) {
+            // Wrap raw coordinates in a Placemark
+            const name = file.name.replace(/\.kml$/i, '');
+            const coordStr = rings.map(r => r.map(p => `${p[0]},${p[1]},0`).join(' ')).join(' ');
+            keptPlacemarks.push(
+              `<Placemark><name>${escapeXml(name)}</name>` +
+              `<LineString><coordinates>${coordStr}</coordinates></LineString></Placemark>`
+            );
+            kept++;
+          } else {
+            skipped++;
+          }
+        }
+
+      } catch (err) {
+        errors++;
+        log(`⚠ Error reading "${file.name}": ${err.message}`, 'warn');
+      }
+    }
+
+    log(`Done! Kept: ${kept} | Skipped: ${skipped} | Errors: ${errors}`, 'ok');
+
+    if (kept === 0) {
+      log('No flight lines fell within the boundary. Check your files.', 'warn');
+      btn.disabled = false; btn.innerHTML = '⚡ Filter &amp; Export'; return;
+    }
+
+    // 3. Build output KML
+    const outputKML =
+`<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Filtered Flight Lines</name>
+    <description>Flight lines clipped to boundary area — generated by KML Flight Line Filter</description>
+${keptPlacemarks.map(p => '    ' + p).join('\n')}
+  </Document>
+</kml>`;
+
+    outputBlob = new Blob([outputKML], { type: 'application/vnd.google-earth.kml+xml' });
+    log(`Output KML generated (${(outputBlob.size / 1024).toFixed(1)} KB)`, 'ok');
+
+    // 4. Generate single CSV report for all boundaries combined
+    log('Generating CSV report…', 'info');
+    
+    // Aggregate all stats across all boundaries
+    const allFlights = [];
+    const allDates = new Set();
+    let totalDistance = 0;
+    let totalFlightTime = 0;
+    
+    for (let b = 0; b < boundaries.length; b++) {
+      const stats = boundaryStats[b];
+      allFlights.push(...stats.flights);
+      stats.dates.forEach(d => allDates.add(d));
+      totalDistance += stats.totalDistance;
+      totalFlightTime += stats.totalFlightTime;
+    }
+    
+    if (allFlights.length > 0) {
+      const csv = [];
+      csv.push('Metric,Value');
+      
+      const datesList = Array.from(allDates).sort().join(', ');
+      csv.push(`"Flight Dates","${datesList || 'No date info'}"`);
+      csv.push(`"Number of Separate Days Flown",${allDates.size}`);
+      csv.push(`"Total Distance (km)","${(totalDistance / 1000).toFixed(2)}"`);
+      csv.push(`"Total Flight Time (hours)","${(totalFlightTime / 3600).toFixed(2)}"`);
+      csv.push(`"Total Flight Count",${allFlights.length}`);
+      
+      const csvText = csv.join('\n');
+      const csvBlob = new Blob([csvText], { type: 'text/csv' });
+      
+      // Generate CSV filename based on boundary KML name
+      const boundaryBaseName = extractBoundaryBaseName(boundaryFile.name);
+      const csvFilename = `${boundaryBaseName}_flight_log.csv`;
+      
+      // Store CSV blob globally
+      window.csvReport = {
+        blob: csvBlob,
+        filename: csvFilename,
+        flightCount: allFlights.length
+      };
+      
+      log(`CSV report generated: ${allFlights.length} flights total`, 'ok');
+    } else {
+      window.csvReport = null;
+    }
+
+    // Show download
+    document.getElementById('resultSummary').innerHTML =
+      `<span class="highlight">${kept}</span> flight lines kept out of ${kept + skipped} total · ${errors} errors`;
+    document.getElementById('dlSection').classList.add('visible');
+    
+    // Populate CSV download
+    if (window.csvReport) {
+      const csvList = document.getElementById('csvList');
+      csvList.innerHTML = 
+        `<div class="csv-item">
+          <div class="csv-item-info">
+            <span class="area">Complete Report</span> — ${window.csvReport.flightCount} flight${window.csvReport.flightCount !== 1 ? 's' : ''} across all boundary areas
+          </div>
+          <button class="btn-csv" onclick="downloadCSV()">Download CSV</button>
+        </div>`;
+      document.getElementById('csvDownloads').style.display = 'block';
+    }
+
+  } catch (err) {
+    log(`FATAL: ${err.message}`, 'err');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '⚡ Filter &amp; Export';
+});
+
+// ─────────────────────────────────────────────
+//  DOWNLOAD
+// ─────────────────────────────────────────────
+document.getElementById('btnDownload').addEventListener('click', function() {
+  if (!outputBlob) return;
+  const url = URL.createObjectURL(outputBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'filtered_flight_lines.kml';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  log('File downloaded: filtered_flight_lines.kml', 'ok');
+});
+
+// CSV Download function
+function downloadCSV() {
+  if (!window.csvReport) return;
+  const csv = window.csvReport;
+  const url = URL.createObjectURL(csv.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = csv.filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  log(`CSV downloaded: ${csv.filename}`, 'ok');
+}
+
+// ─────────────────────────────────────────────
+//  UTILITY
+// ─────────────────────────────────────────────
+function escapeXml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
